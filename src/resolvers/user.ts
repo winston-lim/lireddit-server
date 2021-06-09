@@ -1,6 +1,6 @@
-import argon2 from 'argon2';
-import { User } from '../entities/User';
-import { MyContext } from 'src/types';
+import argon2 from "argon2";
+import { User } from "../entities/User";
+import { MyContext } from "src/types";
 import {
 	Arg,
 	Ctx,
@@ -10,8 +10,10 @@ import {
 	ObjectType,
 	Query,
 	Resolver,
-} from 'type-graphql';
-
+} from "type-graphql";
+import { EntityManager } from "@mikro-orm/postgresql";
+import { EntityData } from "@mikro-orm/core";
+import { COOKIE_NAME } from "../constants";
 @InputType()
 class UsernamePasswordInput {
 	@Field()
@@ -42,7 +44,7 @@ class UserResponse {
 export class UserResolver {
 	@Mutation(() => UserResponse)
 	async register(
-		@Arg('options') options: UsernamePasswordInput,
+		@Arg("options") options: UsernamePasswordInput,
 		@Ctx() { em, req }: MyContext
 	): Promise<UserResponse> {
 		const { username, password } = options;
@@ -50,8 +52,8 @@ export class UserResolver {
 			return {
 				errors: [
 					{
-						field: 'username',
-						message: 'username must be at least 6 characters long',
+						field: "username",
+						message: "username must be at least 6 characters long",
 					},
 				],
 			};
@@ -60,24 +62,33 @@ export class UserResolver {
 			return {
 				errors: [
 					{
-						field: 'password',
-						message: 'password must be at least 4 characters long',
+						field: "password",
+						message: "password must be at least 4 characters long",
 					},
 				],
 			};
 		}
 		const hashedPassword = await argon2.hash(password);
-		const user = em.create(User, { username, password: hashedPassword });
+		let user;
 		try {
-			await em.persistAndFlush(user);
+			const qb = await (em as EntityManager).createQueryBuilder(User).insert({
+				username,
+				password: hashedPassword,
+				created_at: new Date(),
+				updated_at: new Date(),
+			});
+			const knex = qb.getKnexQuery().returning("*");
+			const res = await em.getConnection().execute(knex);
+			const result = res.map((user: EntityData<User>) => em.map(User, user));
+			user = result[0];
 		} catch (e) {
-			if (e.code === '23505') {
+			if (e.code === "23505") {
 				//duplicate username error
 				return {
 					errors: [
 						{
-							field: 'username',
-							message: 'username is already taken',
+							field: "username",
+							message: "username is already taken",
 						},
 					],
 				};
@@ -91,7 +102,7 @@ export class UserResolver {
 
 	@Mutation(() => UserResponse)
 	async login(
-		@Arg('options') options: UsernamePasswordInput,
+		@Arg("options") options: UsernamePasswordInput,
 		@Ctx() { em, req }: MyContext
 	): Promise<UserResponse> {
 		const { username, password } = options;
@@ -100,8 +111,8 @@ export class UserResolver {
 			return {
 				errors: [
 					{
-						field: 'username',
-						message: 'User does not exist',
+						field: "username",
+						message: "User does not exist",
 					},
 				],
 			};
@@ -111,8 +122,8 @@ export class UserResolver {
 			return {
 				errors: [
 					{
-						field: 'password',
-						message: 'Incorrect password',
+						field: "password",
+						message: "Incorrect password",
 					},
 				],
 			};
@@ -130,5 +141,19 @@ export class UserResolver {
 		}
 		const user = await em.findOne(User, { id: req.session.userId });
 		return user;
+	}
+
+	@Mutation(() => Boolean)
+	logout(@Ctx() { req, res }: MyContext) {
+		return new Promise((resolve) =>
+			req.session.destroy((err) => {
+				if (err) {
+					console.log(err);
+					return resolve(false);
+				}
+				res.clearCookie(COOKIE_NAME);
+				return resolve(true);
+			})
+		);
 	}
 }
