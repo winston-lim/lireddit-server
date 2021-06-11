@@ -1,5 +1,4 @@
 import "reflect-metadata";
-import { MikroORM } from "@mikro-orm/core";
 import express from "express";
 import { ApolloServer } from "apollo-server-express";
 import { buildSchema } from "type-graphql";
@@ -8,12 +7,14 @@ import session from "express-session";
 import connectRedis from "connect-redis";
 require("dotenv").config("/src/.env");
 import { COOKIE_NAME, __prod__ } from "./constants";
-import mikroConfig from "./mikro-orm.config";
 import { HelloResolver } from "./resolvers/hello";
 import { PostResolver } from "./resolvers/post";
 import { UserResolver } from "./resolvers/user";
 import { MyContext } from "./types";
 import cors from "cors";
+import { createConnection } from "typeorm";
+import { User } from "./entities/User";
+import { Post } from "./entities/Post";
 declare module "express-session" {
 	export interface SessionData {
 		userId: number;
@@ -21,8 +22,16 @@ declare module "express-session" {
 }
 
 const start = async () => {
-	const orm = await MikroORM.init(mikroConfig);
-	await orm.getMigrator().up();
+	const conn = await createConnection({
+		type: "postgres",
+		database: "lireddit2",
+		username: "postgres",
+		password: "6928891Zz",
+		logging: true,
+		synchronize: true,
+		entities: [Post, User],
+	});
+
 	const app = express();
 
 	const RedisStore = connectRedis(session);
@@ -59,7 +68,7 @@ const start = async () => {
 			resolvers: [HelloResolver, PostResolver, UserResolver],
 			validate: false, //to avoid using default validator
 		}),
-		context: ({ req, res }): MyContext => ({ em: orm.em, req, res, redis }),
+		context: ({ req, res }): MyContext => ({ req, res, redis }),
 	});
 
 	apolloServer.applyMiddleware({
