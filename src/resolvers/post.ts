@@ -43,8 +43,23 @@ export class PostResolver {
 	}
 
 	@FieldResolver(() => User)
-	creator(@Root() post: Post) {
-		return User.findOne(post.creatorId);
+	creator(@Root() post: Post, @Ctx() { userLoader }: MyContext) {
+		return userLoader.load(post.creatorId);
+	}
+
+	@FieldResolver(() => Int, { nullable: true })
+	async voteStatus(
+		@Root() post: Post,
+		@Ctx() { upvoteLoader, req }: MyContext
+	) {
+		if (!req.session.userId) {
+			return null;
+		}
+		const upvote = await upvoteLoader.load({
+			postId: post.id,
+			userId: req.session.userId,
+		});
+		return upvote ? upvote.value : null;
 	}
 
 	@Mutation(() => Post)
@@ -69,23 +84,14 @@ export class PostResolver {
 		const realLimitPlusOne = realLimit + 1;
 
 		const replacements: any[] = [realLimitPlusOne];
-		if (req.session.userId) {
-			replacements.push(req.session.userId);
-		}
 		if (cursor) {
 			replacements.push(new Date(parseInt(cursor)));
 		}
 		console.log("########userId: ", req.session.userId);
 		const posts = await getConnection().query(
 			`
-		select p.*,
-		${
-			req.session.userId
-				? '(select value from upvote where "userId" = $2 and "postId"=p.id) "voteStatus"'
-				: 'null as "voteStatus"'
-		}
-		from post p
-		${cursor ? `where p."createdAt" < ${req.session.userId ? "$3" : "$2"}` : ""}
+		select p.* from post p
+		${cursor ? `where p."createdAt" < $2` : ""}
 		order by p."createdAt" DESC
 		limit $1
 		`,
