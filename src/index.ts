@@ -5,6 +5,7 @@ import { buildSchema } from "type-graphql";
 import Redis from "ioredis";
 import session from "express-session";
 import connectRedis from "connect-redis";
+import path from "path";
 require("dotenv").config("/src/.env");
 import { COOKIE_NAME, __prod__ } from "./constants";
 import { HelloResolver } from "./resolvers/hello";
@@ -15,6 +16,7 @@ import cors from "cors";
 import { createConnection } from "typeorm";
 import { User } from "./entities/User";
 import { Post } from "./entities/Post";
+import { Upvote } from "./entities/Upvote";
 declare module "express-session" {
 	export interface SessionData {
 		userId: number;
@@ -29,8 +31,12 @@ const start = async () => {
 		password: "6928891Zz",
 		logging: true,
 		synchronize: true,
-		entities: [Post, User],
+		migrations: [path.join(__dirname, "./migrations/*")],
+		entities: [Post, User, Upvote],
 	});
+	//await Upvote.delete({});
+	//await Post.delete({});
+	await conn.runMigrations();
 
 	const app = express();
 
