@@ -17,6 +17,7 @@ import { MyContext } from "../types";
 import { isAuth } from "../middleware/isAuth";
 import { getConnection } from "typeorm";
 import { Upvote } from "../entities/Upvote";
+import { User } from "../entities/User";
 @InputType()
 class PostInput {
 	@Field()
@@ -39,6 +40,11 @@ export class PostResolver {
 	@FieldResolver(() => String)
 	textSnippet(@Root() root: Post) {
 		return root.text.slice(0, 50);
+	}
+
+	@FieldResolver(() => User)
+	creator(@Root() post: Post) {
+		return User.findOne(post.creatorId);
 	}
 
 	@Mutation(() => Post)
@@ -73,39 +79,18 @@ export class PostResolver {
 		const posts = await getConnection().query(
 			`
 		select p.*,
-		json_build_object(
-			'id', u.id,
-			'username', u.username,
-			'email', u.email,
-			'createdAt', u."createdAt",
-			'updatedAt', u."updatedAt"
-			) creator,
 		${
 			req.session.userId
 				? '(select value from upvote where "userId" = $2 and "postId"=p.id) "voteStatus"'
 				: 'null as "voteStatus"'
 		}
 		from post p
-		inner join "public".user u on u.id = p."creatorId"
 		${cursor ? `where p."createdAt" < ${req.session.userId ? "$3" : "$2"}` : ""}
 		order by p."createdAt" DESC
 		limit $1
 		`,
 			replacements
 		);
-
-		// const qb = getConnection()
-		// 	.getRepository(Post)
-		// 	.createQueryBuilder("p")
-		// 	.innerJoinAndSelect("p.creator", "u", "u.id = p.creatorId")
-		// 	.orderBy("p.createdAt", "DESC")
-		// 	.take(realLimitPlusOne);
-		// if (cursor) {
-		// 	qb.where('p."createdAt" < :cursor', {
-		// 		cursor: new Date(parseInt(cursor)),
-		// 	});
-		// }
-		// const posts = await qb.getMany();
 		return {
 			posts: posts.slice(0, realLimit),
 			hasMore: posts.length === realLimitPlusOne,
@@ -115,7 +100,7 @@ export class PostResolver {
 	@Query(() => Post, {
 		nullable: true,
 	})
-	async post(@Arg("id") id: number): Promise<Post | undefined> {
+	async post(@Arg("id", () => Int) id: number): Promise<Post | undefined> {
 		return Post.findOne(id);
 	}
 
@@ -137,8 +122,12 @@ export class PostResolver {
 	}
 
 	@Mutation(() => Boolean)
-	async deletePost(@Arg("id") id: number): Promise<boolean> {
-		await Post.delete(id);
+	@UseMiddleware(isAuth)
+	async deletePost(
+		@Arg("id", () => Int) id: number,
+		@Ctx() { req }: MyContext
+	): Promise<boolean> {
+		await Post.delete({ id, creatorId: req.session.userId });
 		return true;
 	}
 
