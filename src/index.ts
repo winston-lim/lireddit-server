@@ -17,6 +17,8 @@ import { createConnection } from "typeorm";
 import { User } from "./entities/User";
 import { Post } from "./entities/Post";
 import { Upvote } from "./entities/Upvote";
+import { createUserLoader } from "./utils/createUserLoader";
+import { createUpvoteLoader } from "./utils/createUpvoteLoader";
 declare module "express-session" {
 	export interface SessionData {
 		userId: number;
@@ -74,7 +76,13 @@ const start = async () => {
 			resolvers: [HelloResolver, PostResolver, UserResolver],
 			validate: false, //to avoid using default validator
 		}),
-		context: ({ req, res }): MyContext => ({ req, res, redis }),
+		context: ({ req, res }): MyContext => ({
+			req,
+			res,
+			redis,
+			userLoader: createUserLoader(),
+			upvoteLoader: createUpvoteLoader(),
+		}),
 	});
 
 	apolloServer.applyMiddleware({
